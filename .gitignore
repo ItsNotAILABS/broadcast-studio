@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+exports/
+snapshots/
+studio-settings.json
+settings.json
+dist/
+build/
+*.spec
+.DS_Store
