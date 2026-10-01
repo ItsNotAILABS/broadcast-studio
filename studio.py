@@ -19,7 +19,7 @@ import numpy as np
 from effects.audio import AudioEngine
 from effects.edit import PRESETS, EditState, beauty, grade, lower_third, overlay_logo, place_still
 from effects.matting import Matter, auto_downsample, pick_device, soften_alpha
-from effects.video import AutoFrame, EyeContact, FaceTracker, KeyLight, VideoDenoise, composite, fast_blur, studio_backdrop, vignette
+from effects.video import AutoFrame, EyeContact, FaceTracker, KeyLight, VideoDenoise, composite, despill, fast_blur, studio_backdrop, vignette
 
 ROOT = Path(__file__).resolve().parent
 OUT_DIR = ROOT / "exports"
@@ -89,6 +89,7 @@ class Session:
         ds = state.downsample or auto_downsample(h, w, state.quality)
         fgr, pha = self.matter.matte(frame, ds)
         pha = soften_alpha(pha)
+        fgr = despill(fgr, pha, state.spill)
         if state.beauty > 0.01:
             person = cv2.cvtColor((fgr * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
             person = beauty(person, pha, state.beauty)
@@ -237,6 +238,7 @@ class Studio(tk.Tk):
         self.color_r = self._scale(tab, "Red", 0, 255, 20)
         self.color_g = self._scale(tab, "Green", 0, 255, 24)
         self.color_b = self._scale(tab, "Blue", 0, 255, 28)
+        self.spill = self._scale(tab, "Edge spill", 0, 100, 55)
 
     def _look_tab(self, book: ttk.Notebook) -> None:
         tab = ttk.Frame(book)
@@ -379,6 +381,7 @@ class Studio(tk.Tk):
         s.bg_x = self.bg_x.get() / 100
         s.bg_y = self.bg_y.get() / 100
         s.color_r, s.color_g, s.color_b = int(self.color_r.get()), int(self.color_g.get()), int(self.color_b.get())
+        s.spill = self.spill.get() / 100
         s.exposure = self.exposure.get() / 100
         s.contrast = self.contrast.get() / 100
         s.saturation = self.saturation.get() / 100
@@ -413,7 +416,7 @@ class Studio(tk.Tk):
             return
         mapping = {
             "mode": self.mode, "blur": self.blur, "bg_scale": self.bg_scale, "bg_x": self.bg_x, "bg_y": self.bg_y,
-            "color_r": self.color_r, "color_g": self.color_g, "color_b": self.color_b,
+            "color_r": self.color_r, "color_g": self.color_g, "color_b": self.color_b, "spill": self.spill,
             "exposure": self.exposure, "contrast": self.contrast, "saturation": self.saturation,
             "temperature": self.temperature, "sharpness": self.sharpness, "vignette": self.vignette, "beauty": self.beauty,
             "eye_strength": self.eye_strength, "keylight": self.keylight, "video_denoise": self.video_denoise,

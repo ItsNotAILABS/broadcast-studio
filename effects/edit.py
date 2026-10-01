@@ -43,6 +43,7 @@ class EditState:
     logo_y: float = 0.04
     quality: bool = False
     downsample: float = 0.0
+    spill: float = 0.55
 
     def color_bgr(self) -> tuple[int, int, int]:
         return (self.color_b, self.color_g, self.color_r)

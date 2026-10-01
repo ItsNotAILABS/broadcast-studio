@@ -255,3 +255,21 @@ def composite(fgr: np.ndarray, pha: np.ndarray, background: np.ndarray) -> np.nd
         fg = fgr.astype(np.float32)
     out = fg * alpha + background.astype(np.float32) * (1.0 - alpha)
     return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def despill(fgr: np.ndarray, pha: np.ndarray, amount: float) -> np.ndarray:
+    """Pull green and blue fringe off the hair edge. fgr is RGB float 0-1."""
+    if amount <= 0.01:
+        return fgr
+    edge = (pha > 0.04) & (pha < 0.92)
+    if not np.any(edge):
+        return fgr
+    rgb = fgr.copy()
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    cap = np.maximum(r, b)
+    green = np.clip(g - cap, 0, 1)
+    blue = np.clip(b - np.maximum(r, g * 0.85), 0, 1)
+    mix = edge.astype(np.float32) * amount
+    rgb[..., 1] = g - green * mix
+    rgb[..., 2] = b - blue * mix * 0.65
+    return np.clip(rgb, 0, 1)
