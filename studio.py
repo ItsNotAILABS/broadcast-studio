@@ -145,6 +145,7 @@ class Studio(tk.Tk):
         self._style()
         self._build()
         self._load()
+        self._bind_keys()
         self.after(40, self._paint)
         self.protocol("WM_DELETE_WINDOW", self.close)
 
@@ -639,6 +640,13 @@ class Studio(tk.Tk):
         self.session.audio.stop()
         self.session.tracker.close()
         self.destroy()
+
+    def _bind_keys(self) -> None:
+        self.bind("<space>", lambda _: self.start_live() if not self.session.running else self.stop())
+        self.bind("<Key-r>", lambda _: self.toggle_record())
+        self.bind("<Key-n>", lambda _: self.toggle_vcam())
+        self.bind("<Key-s>", lambda _: self.snapshot())
+        self.bind("<Escape>", lambda _: self.stop())
 
 
 if __name__ == "__main__":

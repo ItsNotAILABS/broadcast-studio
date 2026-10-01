@@ -39,9 +39,11 @@ class Matter:
             model = model.half()
         self.model = model
         self.rec: list[Optional[torch.Tensor]] = [None, None, None, None]
+        self.prev_pha: Optional[np.ndarray] = None
 
     def reset(self) -> None:
         self.rec = [None, None, None, None]
+        self.prev_pha = None
 
     @torch.inference_mode()
     def matte(self, frame_bgr: np.ndarray, downsample: float) -> tuple[np.ndarray, np.ndarray]:
@@ -53,6 +55,9 @@ class Matter:
         fgr, pha, *self.rec = self.model(src, *self.rec, downsample_ratio=float(downsample))
         fgr = fgr[0].float().clamp(0, 1).permute(1, 2, 0).cpu().numpy()
         pha = pha[0, 0].float().clamp(0, 1).cpu().numpy()
+        if self.prev_pha is not None and self.prev_pha.shape == pha.shape:
+            pha = 0.65 * pha + 0.35 * self.prev_pha
+        self.prev_pha = pha
         return fgr, pha
 
 
@@ -62,4 +67,6 @@ def auto_downsample(height: int, width: int, quality: bool) -> float:
 
 
 def soften_alpha(pha: np.ndarray) -> np.ndarray:
-    return np.clip((pha - 0.04) / 0.96, 0.0, 1.0).astype(np.float32)
+    edge = cv2.GaussianBlur(pha, (0, 0), 1.2)
+    refined = np.where(np.abs(pha - 0.5) < 0.18, edge, pha)
+    return np.clip((refined - 0.03) / 0.97, 0.0, 1.0).astype(np.float32)
