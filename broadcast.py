@@ -124,11 +124,15 @@ class VirtualCam:
             return self.cam.device
         return self.error or "unavailable"
 
-    def send(self, bgr: np.ndarray) -> None:
+    def send(self, bgr: np.ndarray, pace: bool = True) -> None:
         if self.cam is None:
             return
-        self.cam.send(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
-        self.cam.sleep_until_next_frame()
+        frame = bgr
+        if frame.shape[1] != self.cam.width or frame.shape[0] != self.cam.height:
+            frame = cv2.resize(frame, (self.cam.width, self.cam.height))
+        self.cam.send(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        if pace:
+            self.cam.sleep_until_next_frame()
 
     def close(self) -> None:
         if self.cam is not None:

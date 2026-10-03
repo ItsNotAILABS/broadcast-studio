@@ -53,6 +53,7 @@ class Session:
         self.writer = None
         self.vcam = None
         self.background = None
+        self.background_video = None
         self.logo = None
         self.source_path = ""
         self.device = pick_device("auto")
@@ -129,7 +130,23 @@ class Session:
             return studio_backdrop(w, h, anchor)
         if state.mode == "image" and self.background is not None:
             return place_still(self.background, w, h, state.bg_scale, state.bg_x, state.bg_y)
+        if state.mode == "video":
+            still = self._next_video(w, h)
+            if still is not None:
+                return place_still(still, w, h, state.bg_scale, state.bg_x, state.bg_y)
         return fast_blur(frame, state.blur)
+
+    def _next_video(self, width: int, height: int):
+        cap = self.background_video
+        if cap is None:
+            return None
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            ok, frame = cap.read()
+        if not ok or frame is None:
+            return None
+        return frame
 
 
 class Studio(tk.Tk):
@@ -228,13 +245,14 @@ class Studio(tk.Tk):
         self.mode = tk.StringVar(value="blur")
         modes = ttk.Frame(tab)
         modes.pack(fill="x", pady=6)
-        for label, value in (("Blur", "blur"), ("Color", "color"), ("Image", "image"), ("Studio", "studio"), ("Green", "green"), ("Remove", "remove")):
+        for label, value in (("Blur", "blur"), ("Color", "color"), ("Image", "image"), ("Video", "video"), ("Studio", "studio"), ("Green", "green"), ("Remove", "remove")):
             ttk.Radiobutton(modes, text=label, value=value, variable=self.mode, command=self._pull).pack(anchor="w")
         self.blur = self._scale(tab, "Blur", 1, 80, 28)
         self.bg_scale = self._scale(tab, "Backdrop scale", 40, 220, 100)
         self.bg_x = self._scale(tab, "Backdrop X", -100, 100, 0)
         self.bg_y = self._scale(tab, "Backdrop Y", -100, 100, 0)
         ttk.Button(tab, text="Load backdrop", command=self.load_background).pack(anchor="w", pady=6)
+        ttk.Button(tab, text="Load backdrop video", command=self.load_background_video).pack(anchor="w")
         self.color_r = self._scale(tab, "Red", 0, 255, 20)
         self.color_g = self._scale(tab, "Green", 0, 255, 24)
         self.color_b = self._scale(tab, "Blue", 0, 255, 28)
@@ -474,6 +492,21 @@ class Studio(tk.Tk):
         self._pull()
         self.status.set(Path(path).name)
 
+    def load_background_video(self) -> None:
+        path = filedialog.askopenfilename(filetypes=[("Video", "*.mp4 *.mov *.mkv *.avi")])
+        if not path:
+            return
+        cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            self.status.set("Could not read that video")
+            return
+        if self.session.background_video is not None:
+            self.session.background_video.release()
+        self.session.background_video = cap
+        self.mode.set("video")
+        self._pull()
+        self.status.set(Path(path).name)
+
     def load_logo(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Images", "*.png *.jpg *.jpeg *.webp")])
         if not path:
@@ -521,7 +554,7 @@ class Studio(tk.Tk):
             last = now
             self.session.latest = out
             if self.session.vcam is not None:
-                self.session.vcam.send(out)
+                self.session.vcam.send(out, pace=False)
             if self.session.writer is not None:
                 self.session.writer.write(out)
         cap.release()
@@ -548,8 +581,9 @@ class Studio(tk.Tk):
         self.stage.create_text(18, 22, anchor="w", fill=ACCENT, text="PGM", font=("Segoe UI", 9, "bold"))
         self.stage.create_text(18, height - 18, anchor="w", fill="#d7dbe3", text=f"{self.session.fps:4.1f}  FPS", font=("Segoe UI", 9))
         if self.session.writer is not None:
+            elapsed = int(time.perf_counter() - getattr(self.session, "rec_started", time.perf_counter()))
             self.stage.create_oval(width - 28, 16, width - 16, 28, fill=REC, outline=REC)
-            self.stage.create_text(width - 36, 22, anchor="e", fill=REC, text="REC", font=("Segoe UI", 9, "bold"))
+            self.stage.create_text(width - 36, 22, anchor="e", fill=REC, text=f"REC  {elapsed // 60:02d}:{elapsed % 60:02d}", font=("Segoe UI", 9, "bold"))
 
     def stop(self) -> None:
         self.session.running = False
@@ -580,6 +614,7 @@ class Studio(tk.Tk):
             self.status.set("Could not open a writer")
             return
         self.session.writer = writer
+        self.session.rec_started = time.perf_counter()
         self.rec_button.configure(text="Stop rec")
         self.status.set(f"REC  {path.name}")
 
@@ -642,6 +677,8 @@ class Studio(tk.Tk):
             self.session.vcam.close()
         self.session.audio.stop()
         self.session.tracker.close()
+        if self.session.background_video is not None:
+            self.session.background_video.release()
         self.destroy()
 
     def _bind_keys(self) -> None:
