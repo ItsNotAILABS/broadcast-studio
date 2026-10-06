@@ -18,8 +18,8 @@ import numpy as np
 
 from effects.audio import AudioEngine
 from effects.edit import PRESETS, EditState, beauty, grade, lower_third, overlay_logo, place_still
-from effects.matting import Matter, auto_downsample, pick_device, soften_alpha
-from effects.video import AutoFrame, EyeContact, FaceTracker, KeyLight, VideoDenoise, composite, despill, fast_blur, studio_backdrop, vignette
+from effects.matting import Matter, auto_downsample, guide_alpha, pick_device, soften_alpha
+from effects.video import AutoFrame, EyeContact, FaceTracker, KeyLight, VideoDenoise, belong, composite, despill, fast_blur, portrait_bokeh, studio_backdrop, vignette
 
 ROOT = Path(__file__).resolve().parent
 OUT_DIR = ROOT / "exports"
@@ -90,7 +90,14 @@ class Session:
         ds = state.downsample or auto_downsample(h, w, state.quality)
         fgr, pha = self.matter.matte(frame, ds)
         pha = soften_alpha(pha)
+        pha = guide_alpha(pha, frame)
         fgr = despill(fgr, pha, state.spill)
+        if state.mode == "blur":
+            plate = portrait_bokeh(frame, pha, state.bokeh if state.bokeh > 0.01 else state.blur / 80.0)
+        else:
+            plate = self._background(state, frame, 0.5)
+        if state.belong_on:
+            fgr = belong(fgr, pha, plate, state.belong)
         if state.beauty > 0.01:
             person = cv2.cvtColor((fgr * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
             person = beauty(person, pha, state.beauty)
@@ -99,11 +106,13 @@ class Session:
             pts = self.tracker.landmarks(frame)
             lit = self.lighter.apply(cv2.cvtColor((fgr * 255).astype(np.uint8), cv2.COLOR_RGB2BGR), pha, pts, state.keylight)
             fgr = cv2.cvtColor(lit, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-        anchor = float(np.clip((pha * np.linspace(0, 1, w)).sum() / max(pha.sum(), 1e-6), 0.2, 0.8))
         if state.mode == "mask":
             out = cv2.cvtColor((pha * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
         else:
-            out = composite(fgr, pha, self._background(state, frame, anchor))
+            anchor = float(np.clip((pha * np.linspace(0, 1, w)).sum() / max(pha.sum(), 1e-6), 0.2, 0.8))
+            if state.mode != "blur":
+                plate = self._background(state, frame, anchor)
+            out = composite(fgr, pha, plate)
         out = grade(out, state)
         out = vignette(out, state.vignette)
         if state.lower_on:
@@ -257,6 +266,11 @@ class Studio(tk.Tk):
         self.color_g = self._scale(tab, "Green", 0, 255, 24)
         self.color_b = self._scale(tab, "Blue", 0, 255, 28)
         self.spill = self._scale(tab, "Edge spill", 0, 100, 55)
+        self.bokeh = self._scale(tab, "Portrait falloff", 0, 100, 40)
+        self.belong = self._scale(tab, "Belong", 0, 100, 35)
+        self.belong_on = tk.BooleanVar(value=True)
+        ttk.Checkbutton(tab, text="Match scene light", variable=self.belong_on, command=self._pull).pack(anchor="w", pady=4)
+        ttk.Button(tab, text="Scan cameras", command=self.scan_cameras).pack(anchor="w", pady=4)
 
     def _look_tab(self, book: ttk.Notebook) -> None:
         tab = ttk.Frame(book)
@@ -400,6 +414,9 @@ class Studio(tk.Tk):
         s.bg_y = self.bg_y.get() / 100
         s.color_r, s.color_g, s.color_b = int(self.color_r.get()), int(self.color_g.get()), int(self.color_b.get())
         s.spill = self.spill.get() / 100
+        s.bokeh = self.bokeh.get() / 100
+        s.belong = self.belong.get() / 100
+        s.belong_on = self.belong_on.get()
         s.exposure = self.exposure.get() / 100
         s.contrast = self.contrast.get() / 100
         s.saturation = self.saturation.get() / 100
@@ -435,12 +452,13 @@ class Studio(tk.Tk):
         mapping = {
             "mode": self.mode, "blur": self.blur, "bg_scale": self.bg_scale, "bg_x": self.bg_x, "bg_y": self.bg_y,
             "color_r": self.color_r, "color_g": self.color_g, "color_b": self.color_b, "spill": self.spill,
+            "bokeh": self.bokeh, "belong": self.belong,
             "exposure": self.exposure, "contrast": self.contrast, "saturation": self.saturation,
             "temperature": self.temperature, "sharpness": self.sharpness, "vignette": self.vignette, "beauty": self.beauty,
             "eye_strength": self.eye_strength, "keylight": self.keylight, "video_denoise": self.video_denoise,
             "logo_scale": self.logo_scale, "logo_x": self.logo_x, "logo_y": self.logo_y,
         }
-        checks = {"eye": self.eye, "autoframe": self.autoframe, "key_on": self.key_on, "denoise_on": self.denoise_on, "mirror": self.mirror, "quality": self.quality, "lower_on": self.lower_on, "logo_on": self.logo_on}
+        checks = {"eye": self.eye, "autoframe": self.autoframe, "key_on": self.key_on, "denoise_on": self.denoise_on, "mirror": self.mirror, "quality": self.quality, "lower_on": self.lower_on, "logo_on": self.logo_on, "belong_on": self.belong_on}
         for key, var in mapping.items():
             if key in data:
                 var.set(data[key])
@@ -467,9 +485,10 @@ class Studio(tk.Tk):
             self.mode.set(values["mode"])
         if "blur" in values:
             self.blur.set(values["blur"])
-        for key, widget in (("beauty", self.beauty), ("keylight", self.keylight), ("video_denoise", self.video_denoise), ("vignette", self.vignette), ("sharpness", self.sharpness)):
+        for key, widget in (("beauty", self.beauty), ("keylight", self.keylight), ("video_denoise", self.video_denoise), ("vignette", self.vignette), ("sharpness", self.sharpness), ("bokeh", self.bokeh), ("belong", self.belong), ("spill", self.spill)):
             if key in values:
-                widget.set(int(values[key] * 100))
+                widget.set(int(float(values[key]) * 100) if float(values[key]) <= 1 else int(values[key]))
+        self.belong_on.set(values.get("belong_on", self.belong_on.get()))
         self.eye.set(values.get("eye", self.eye.get()))
         self.autoframe.set(values.get("autoframe", self.autoframe.get()))
         self.key_on.set(values.get("key_on", self.key_on.get()))
@@ -478,6 +497,16 @@ class Studio(tk.Tk):
         self.logo_on.set(values.get("logo_on", self.logo_on.get()))
         self._pull()
         self.status.set(name)
+
+    def scan_cameras(self) -> None:
+        found = []
+        backend = cv2.CAP_DSHOW if platform.system() == "Windows" else cv2.CAP_ANY
+        for index in range(6):
+            cap = cv2.VideoCapture(index, backend)
+            if cap.isOpened():
+                found.append(str(index))
+                cap.release()
+        self.status.set("Cameras " + (", ".join(found) if found else "none"))
 
     def load_background(self) -> None:
         path = filedialog.askopenfilename(filetypes=[("Images", "*.png *.jpg *.jpeg *.webp")])

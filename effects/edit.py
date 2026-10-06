@@ -44,6 +44,9 @@ class EditState:
     quality: bool = False
     downsample: float = 0.0
     spill: float = 0.55
+    belong_on: bool = True
+    belong: float = 0.35
+    bokeh: float = 0.0
 
     def color_bgr(self) -> tuple[int, int, int]:
         return (self.color_b, self.color_g, self.color_r)
@@ -135,6 +138,7 @@ def overlay_logo(frame: np.ndarray, logo: np.ndarray, scale: float, ox: float, o
 
 PRESETS = {
     "Meeting": dict(mode="blur", blur=26, beauty=0.25, key_on=True, keylight=0.32, denoise_on=True, video_denoise=0.35, vignette=0.0, eye=False, autoframe=False, sharpness=0.12),
+    "Presence": dict(mode="blur", blur=34, beauty=0.2, key_on=True, keylight=0.38, denoise_on=True, video_denoise=0.3, vignette=0.18, eye=False, autoframe=True, sharpness=0.16, belong_on=True, belong=0.45, bokeh=0.7, spill=0.6),
     "Stream": dict(mode="studio", blur=20, beauty=0.15, key_on=True, keylight=0.4, vignette=0.35, lower_on=True, sharpness=0.22, eye=False, autoframe=True),
     "Podcast": dict(mode="image", beauty=0.3, key_on=True, keylight=0.45, denoise_on=True, video_denoise=0.4, vignette=0.2, sharpness=0.1),
     "Clean plate": dict(mode="remove", beauty=0.0, key_on=False, vignette=0.0, lower_on=False, logo_on=False, sharpness=0.05),

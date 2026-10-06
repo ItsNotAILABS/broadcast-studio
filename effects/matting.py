@@ -70,3 +70,13 @@ def soften_alpha(pha: np.ndarray) -> np.ndarray:
     edge = cv2.GaussianBlur(pha, (0, 0), 1.2)
     refined = np.where(np.abs(pha - 0.5) < 0.18, edge, pha)
     return np.clip((refined - 0.03) / 0.97, 0.0, 1.0).astype(np.float32)
+
+
+def guide_alpha(pha: np.ndarray, frame_bgr: np.ndarray) -> np.ndarray:
+    """Keep the matte on image edges so hair does not turn into a gray halo."""
+    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+    edge = cv2.Canny(gray, 48, 128).astype(np.float32) / 255.0
+    edge = cv2.GaussianBlur(edge, (0, 0), 1.1)
+    soft = cv2.GaussianBlur(pha, (0, 0), 1.5)
+    guided = pha * edge + soft * (1.0 - edge)
+    return np.clip(guided, 0.0, 1.0).astype(np.float32)

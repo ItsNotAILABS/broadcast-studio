@@ -248,6 +248,35 @@ def studio_backdrop(width: int, height: int, anchor_x: float) -> np.ndarray:
     return canvas
 
 
+def portrait_bokeh(frame: np.ndarray, pha: np.ndarray, strength: float) -> np.ndarray:
+    """Blur falls off with distance from the person. The matte is the depth cue."""
+    if strength <= 0.01:
+        return frame
+    person = cv2.GaussianBlur((pha > 0.45).astype(np.float32), (0, 0), 18)
+    far = np.clip(1.0 - person, 0, 1)
+    near = np.clip(person * 1.35, 0, 1)[..., None]
+    mid = fast_blur(frame, int(10 + strength * 18))
+    deep = fast_blur(frame, int(24 + strength * 48))
+    field = mid.astype(np.float32) * (1.0 - far[..., None]) + deep.astype(np.float32) * far[..., None]
+    return np.clip(frame.astype(np.float32) * near + field * (1.0 - near), 0, 255).astype(np.uint8)
+
+
+def belong(fgr: np.ndarray, pha: np.ndarray, background: np.ndarray, amount: float) -> np.ndarray:
+    """Nudge the person toward the scene's color so the cut does not look pasted on."""
+    if amount <= 0.01:
+        return fgr
+    outside = pha < 0.18
+    inside = pha > 0.62
+    if int(outside.sum()) < 40 or int(inside.sum()) < 40:
+        return fgr
+    bg = cv2.cvtColor(background, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    scene = bg[outside].mean(axis=0)
+    person = fgr[inside].mean(axis=0)
+    gain = np.clip((scene + 0.04) / (person + 0.04), 0.86, 1.16)
+    mixed = fgr * ((1.0 - amount) + amount * gain)
+    return np.clip(mixed, 0.0, 1.0)
+
+
 def composite(fgr: np.ndarray, pha: np.ndarray, background: np.ndarray) -> np.ndarray:
     alpha = pha[..., None]
     fg = fgr * 255.0 if fgr.dtype != np.uint8 else fgr.astype(np.float32)
